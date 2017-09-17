@@ -1,0 +1,140 @@
+---
+title: "On the Impact of Transmission and Various Measurements on MPG"
+output:
+  pdf_document:
+    fig_caption: yes
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r,echo=FALSE,results="hide",message=FALSE,warnings=FALSE}
+library(car)
+```
+
+## Overview
+
+In this report, we perform simple analyses of the mtcars data in the R datasets package. We are interested in exploring the relationship between a set of variables and miles per gallon (MPG). In particular, we analyse the impact of transmission on fuel consumption and quantify the difference of the two transmission modes (automatic/manual) on MPG.
+
+## Exploring the Data
+
+First, the dataset is made available for processing, transforming transmission and engine type into factors, and basic information is obtained:
+```{r}
+library(datasets); data("mtcars"); # str(mtcars)
+# trasmission and engine type are more natually encoded as factor variables
+mtcars$am <- factor(mtcars$am)
+mtcars$vs <- factor(mtcars$vs)
+```
+Let's first qualitatively observe the difference between transmission modes in terms of MPG. Here are common distribution values for the sample of MPG in the two groups:
+```{r}
+summary(subset(mtcars, am == "0")$mpg)
+summary(subset(mtcars, am == "1")$mpg)
+```
+with cars with automatic transmission being a lot less fuel effective than the manual transmission ones. This is confirmed by the plot in Fig.1 in the appendix.
+
+We then look at the scatterplots between all possible pairs of variables, visually searching for correlations and other relationships among them. The scatterplots are reported in Fig.2 in the appendix, colored according to the trasmission type. Overall, all variables seem to have an influence on fuel consumption, but are also highly correlated between each other. Not surprisingly, MPG clearly decreases with the number of cylinders, displacement, horse power and weight, and slightly less with the number of carburetors. There seem to be a positive influence of rear axle ratio (drat) and straight engines compared to v engines (vs). 
+
+# Data Analyses
+
+## Comparison of Automatic/Manual Transmission Cars
+
+Even if there's overlap, the above analysis pointed to a difference in the distribution of MPG values of the two groups (automatic/manual). Here we verify normality of the mpg samples and verify that the average MPG value of automatic transmission cars is significantly smaller than the one of manual transmission cars:
+```{r}
+sapply(list(subset(mtcars,am==0)$mpg,subset(mtcars,am==1)$mpg), 
+       function(elt) shapiro.test(elt)$p.value)
+test <- t.test(mpg ~ am, paired = FALSE, var.equal = FALSE, 
+               data = mtcars, alternative = "less")
+c(test$p.value, test$conf.int[2])
+```
+The Shapiro Test fails to reject hypothesis of normality, and the t.test confirms the mean MPG of automatic cars is significantly smaller than the one of manual cars. With 95% probability, manual cars run on average at least around 4 miles longer than automatic cars. Note that the same results could have obtained by using a linear model of MPG vs transmission.
+
+## Linear Modeling 
+
+Besides trasmission, MPG of an engine depends on several interrelated factors which are measured by other variables in the dataset under consideration. In order to better understand the relationship between MPG and transmission, we try to model MPG as the outcome of a linear model using transmission and other variables as possible regressors.
+
+### Model Selection
+
+Model selection occurs with a customised forward selection iterative strategy using likelihood ratio tests comparing nested models. Since the focus is on the effect of trasmission on MPG, the first model uses only the transmission binary variable _am_ as regressor and the latter as outcome:
+```{r}
+mpg_am_fit <- lm(mpg ~ am, data = mtcars)
+```
+As reported in appendix A.2, coefficient estimates are deemed to be significant, with the intercept `r round(mpg_am_fit$coef[1],2)` representing the mean MPG for the automatic cars; the other coefficient, `r round(mpg_am_fit$coef[2],2)`, is the estimated increase in the mean MPG we observe when looking at manual cars instead. This confirms the finding of the previous section. Nevertheless, the adjusted R-squared indicates a significant fraction of the outcome is not explained by trasmission alone.
+
+When looking at adding other regressors, we must judiciously consider which variables to add based on knowledge of the system under observation, i.e. some variables are alternative representations of other variables, and there exist a strong correlation between subset of the observed variables. For instance, one must choose whether to consider either the number of cylinders or displacement, the latter being clearly a continuous representation of the former. The forward selection strategy we apply is to consider, at each step and for each of the remaining variables, its simultaneous effect on the variance inflation factor (VIF) of the other regressors and the increase in variance explained by the model. The algorithm selects at each step the variable which brings a combined minimum VIF and largest increase in adjusted R2:
+```{r}
+# create a list of regressors to evaluate, do not consider qsec
+regressors <- names(mtcars)
+regressors <- regressors[regressors!="mpg" & regressors!="am" & regressors!="qsec"]
+models <- list(am = mpg_am_fit)
+formula <- "mpg ~ am"
+while(TRUE) {
+  min = 10000; bestr <- ''; bestm <- ''; bestf <- ''
+  for (regr in regressors) { # loop over remaining regressors
+    f <- paste(formula, "+", regr)
+    fit <- do.call("lm", list(as.formula(f), data=as.name("mtcars")))
+    s <- summary(fit)
+    vifs <- vif(fit)[-length(vif(fit))]; # remove VIF on current regressor
+    v <- c(vifs, 1-s$adj.r.squared) # to simulaneously and equally evaluate VIFs and R2
+    if(mean(v) < min) { min <- mean(v); bestr <- regr; bestm <- fit; bestf <- f }
+  }
+  formula <- bestf
+  models[[bestr]] <- bestm
+  regressors <- regressors[regressors!=bestr] # remove chosen regressor
+  if(!length(regressors)) { break }
+}
+```
+We then consider nested likelihood ratio tests and choosing the model where the terms of its successive model are deemed to be not significant ($\alpha = 0.05$). Results are shown in Appendix A.2. The above strategy selects a very parsimonious model using only transmission and horse power as regressors. In order to obtain a more meaningful interpretation of the intercept, we recompute the selected model by shifting the hp values by their average. The confidence intervals of the estimates are again reported in Appendix A.3:  
+```{r}
+rescaled_best <- lm(mpg ~ am + I(hp-mean(hp)), data = mtcars)
+coefs <- summary(rescaled_best)$coefficients
+```
+The advantage of having such a simple parsimonious model with one categorical regressor is that we obtain a useful and clear interpretation of the intercept and other model tersm:: the intercept can be interpreted as the expected MPG of the average HP car with automatic transmission, while the sum of the intercept and the transmission coefficient is the expected MPG of the average HP car with manual transmission.
+
+Some diagnostic plots are shown in Appendix A.3. The Residuals vs Fitted and Normal QQ plots confirm the residuals are approximately normally distributed with zero mean and no clear correlation with the fitted values. The Residuals vs Leverage plot shows there might be some outliers with a certain influence which probably be taken into account in order to obtain a better fit.
+
+# Summary
+
+We've found manual cars to be on average significantly more fuel effective than automatic cars. A parsimonious model with transmission and hp has been found to be a good and significant fit of the available observations. Based on this model, with 95% confidence we quantify the expected MPG of the average HP car with automatic transmission to be around `r round(coefs[1,1],2)`, the expected MPG of the average HP car with manual transmission to be close to `r round(coefs[1,1] +coefs[2,1],2)`, and the expected decrease in MPG per 1hp increase with transmission remaining constant to be around `r abs(round(coefs[3,1],2))` MPGs.
+
+# Appendix
+
+## A.1 Exploratory Plots
+
+```{r boxplot, fig.width=4.5,fig.height=5}
+par(mfrow=c(1,2))
+with(mtcars, boxplot(mpg ~ am, main="MT Cars Data", xlab="Transmission", ylab="MPG"))
+pairs(mtcars, main = "MT Cars Data", col = mtcars$am)
+```
+
+## A.2 Evaluation of Nested Models for MPG
+
+The following summarises the model of MPG with transmission type:
+```{r}
+summary(mpg_am_fit)
+```
+This is a summary of the likelihood ratio tests of various incremental models developed over the course of the above analyses:
+```{r}
+anova(models[[1]],models[[2]],models[[3]],models[[4]],
+      models[[5]],models[[6]],models[[7]],models[[8]],models[[9]])
+```
+
+## A.3 Summary of the Best Selected Model
+
+The following reports a summary of the best selected model using the forward selection strategy outlined above:
+```{r}
+summary(models[[2]])
+```
+These are the 95% confidence intervals of this model using transmission and the mean centered hp values:
+```{r}
+coefs[1,1] + c(-1,1)*qt(.975, df = rescaled_best$df)*coefs[1,2]
+coefs[2,1] + c(-1,1)*qt(.975, df = rescaled_best$df)*coefs[2,2]
+coefs[3,1] + c(-1,1)*qt(.975, df = rescaled_best$df)*coefs[3,2]
+```
+
+And here are some diagnostic plots:
+```{r, fig.width=8}
+par(mfrow=c(2,2))
+plot(rescaled_best)
+```
