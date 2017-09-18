@@ -14,9 +14,11 @@ knitr::opts_chunk$set(echo = TRUE)
 library(car)
 ```
 
-## Overview
+## Summary
 
 In this report, we perform simple analyses of the mtcars data in the R datasets package. We are interested in exploring the relationship between a set of variables and miles per gallon (MPG). In particular, we analyse the impact of transmission on fuel consumption and quantify the difference of the two transmission modes (automatic/manual) on MPG.
+
+We've found manual cars to be on average significantly more fuel effective than automatic cars. A parsimonious model with transmission and hp has been found to be a good and significant fit of the available observations. Based on this model, we've quantified the expected MPG of the average HP car with both automatic and manual transmission.
 
 ## Exploring the Data
 
@@ -94,7 +96,7 @@ The advantage of having such a simple parsimonious model with one categorical re
 
 Some diagnostic plots are shown in Appendix A.3. The Residuals vs Fitted and Normal QQ plots confirm the residuals are approximately normally distributed with zero mean and no clear correlation with the fitted values. The Residuals vs Leverage plot shows there might be some outliers with a certain influence which probably be taken into account in order to obtain a better fit.
 
-# Summary
+## Results
 
 We've found manual cars to be on average significantly more fuel effective than automatic cars. A parsimonious model with transmission and hp has been found to be a good and significant fit of the available observations. Based on this model, with 95% confidence we quantify the expected MPG of the average HP car with automatic transmission to be around `r round(coefs[1,1],2)`, the expected MPG of the average HP car with manual transmission to be close to `r round(coefs[1,1] +coefs[2,1],2)`, and the expected decrease in MPG per 1hp increase with transmission remaining constant to be around `r abs(round(coefs[3,1],2))` MPGs.
 
